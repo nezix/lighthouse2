@@ -87,17 +87,17 @@ void HostSkyDome::Load( const char* filename, const float3 scale )
 	for (int x = 2000; x < 2200; x++) for (int y = 900; y < 1100; y++) pixels[x + y * 5120] = make_float3( 0, 10, 0 );
 	for (int x = 4000; x < 4200; x++) for (int y = 900; y < 1100; y++) pixels[x + y * 5120] = make_float3( 0, 0, 10 );
 #else
-		// attempt to load skydome from binary file
+	// attempt to load skydome from binary file
 	std::ifstream f( bin_name, std::ios::binary );
-		if (f)
-		{
-			printf( "loading cached hdr data... " );
-			f.read( (char*)&width, sizeof( width ) );
-			f.read( (char*)&height, sizeof( height ) );
-			// TODO: Mmap
-			pixels = (float3*)MALLOC64( width * height * sizeof( float3 ) );
-			f.read( (char*)pixels, sizeof( float3 ) * width * height );
-		}
+	if (f)
+	{
+		printf( "loading cached hdr data... " );
+		f.read( (char*)&width, sizeof( width ) );
+		f.read( (char*)&height, sizeof( height ) );
+		// TODO: Mmap
+		pixels = (float3*)MALLOC64( width * height * sizeof( float3 ) );
+		f.read( (char*)pixels, sizeof( float3 ) * width * height );
+	}
 #endif
 	if (!pixels)
 	{
@@ -184,6 +184,19 @@ void HostSkyDome::Load( const char* filename, const float3 scale )
 	// done
 	dirty = true;
 	printf( "sky ready in %5.3fs.\n", timer.elapsed() );
+}
+
+void HostSkyDome::SetColor(const float3 color) {
+	FREE64( pixels ); // just in case we're reloading
+	pixels = 0;
+
+	// red / green / blue test environment
+	width = 512, height = 256;
+	pixels = (float3*)MALLOC64( width * height * sizeof( float3 ) );
+	memset( pixels, 0, width * height * sizeof( float3 ) );
+	for (int x = 0; x < width * height; x++) pixels[x] = color;//make_float3( 0.1f, 0.1f, 0.1f );
+
+	dirty = true;
 }
 
 // EOF
