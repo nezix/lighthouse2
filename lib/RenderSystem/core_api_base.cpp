@@ -58,13 +58,14 @@ bool GetLastErrorString( char* buffer, DWORD length )
 HMODULE LoadModule( const char* dllName )
 {
 	// try the development folder structure first
-	string dllpath = "../../coredlls/";
-#ifdef _DEBUG
-	dllpath += "debug/";
-#else
-	dllpath += "release/";
-#endif
-	dllpath += dllName;
+// 	string dllpath = "../../coredlls/";
+// #ifdef _DEBUG
+// 	dllpath += "debug/";
+// #else
+// 	dllpath += "release/";
+// #endif
+// 	dllpath += dllName;
+	string dllpath = dllName;
 	module = LoadLibrary( dllpath.c_str() );
 	if (!module)
 	{
