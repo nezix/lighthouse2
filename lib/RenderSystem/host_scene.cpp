@@ -122,13 +122,13 @@ void HostScene::DeserializeMaterials( const char* xmlFile )
 		XMLElement* color = entry->FirstChildElement( "color" );
 		if (color)
 			color->QueryFloatAttribute( "r", &m->color.value.x ),
-			color->QueryFloatAttribute( "g", &m->color.value.y ),
-			color->QueryFloatAttribute( "b", &m->color.value.z );
+			      color->QueryFloatAttribute( "g", &m->color.value.y ),
+			      color->QueryFloatAttribute( "b", &m->color.value.z );
 		XMLElement* absorption = entry->FirstChildElement( "absorption" );
 		if (absorption)
 			absorption->QueryFloatAttribute( "r", &m->absorption.value.x ),
-			absorption->QueryFloatAttribute( "g", &m->absorption.value.y ),
-			absorption->QueryFloatAttribute( "b", &m->absorption.value.z );
+			           absorption->QueryFloatAttribute( "g", &m->absorption.value.y ),
+			           absorption->QueryFloatAttribute( "b", &m->absorption.value.z );
 		if (entry->FirstChildElement( "metallic" )) entry->FirstChildElement( "metallic" )->QueryFloatText( &m->metallic() );
 		if (entry->FirstChildElement( "subsurface" )) entry->FirstChildElement( "subsurface" )->QueryFloatText( &m->subsurface() );
 		if (entry->FirstChildElement( "specular" )) entry->FirstChildElement( "specular" )->QueryFloatText( &m->specular() );
@@ -197,6 +197,13 @@ int HostScene::AddMesh( const char* objFile, const float scale, const bool flatS
 int HostScene::AddMesh( const char* objFile, const char* dir, const float scale, const bool flatShaded )
 {
 	HostMesh* newMesh = new HostMesh( objFile, dir, scale, flatShaded );
+	return AddMesh( newMesh );
+}
+
+//Create mesh from parameter buffers
+int HostScene::AddMesh(const float *vertices, const int *triangles, const float *normals, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded )
+{
+	HostMesh* newMesh = new HostMesh( vertices, triangles, normals, vertCount, triCount, matId, scale, flatShaded );
 	return AddMesh( newMesh );
 }
 
@@ -454,14 +461,14 @@ int HostScene::AddInstance( HostNode* newNode )
 		// we have holes in the nodes vector due to instance deletions; search from the
 		// end of the list to speed up frequent additions / deletions in complex scenes.
 		for (int i = (int)nodePool.size() - 1; i >= 0; i--) if (nodePool[i] == 0)
-		{
-			// overwrite an empty slot, created by deleting an instance
-			nodePool[i] = newNode;
-			newNode->ID = i;
-			rootNodes.push_back( i );
-			nodeListHoles--; // plugged one hole.
-			return i;
-		}
+			{
+				// overwrite an empty slot, created by deleting an instance
+				nodePool[i] = newNode;
+				newNode->ID = i;
+				rootNodes.push_back( i );
+				nodeListHoles--; // plugged one hole.
+				return i;
+			}
 	}
 	// no empty slots available or found; make sure we don't look for them again.
 	nodeListHoles = 0;
@@ -495,11 +502,11 @@ void HostScene::RemoveNode( const int nodeId )
 {
 	// remove the instance from the scene graph
 	for (int s = (int)rootNodes.size(), i = 0; i < s; i++) if (rootNodes[i] == nodeId)
-	{
-		rootNodes[i] = rootNodes[s - 1];
-		rootNodes.pop_back();
-		break;
-	}
+		{
+			rootNodes[i] = rootNodes[s - 1];
+			rootNodes.pop_back();
+			break;
+		}
 	// delete the instance
 	HostNode* node = nodePool[nodeId];
 	nodePool[nodeId] = 0; // safe; we only access the nodes vector indirectly.
@@ -527,10 +534,10 @@ int HostScene::FindOrCreateTexture( const string& origin, const uint modFlags )
 {
 	// search list for existing texture
 	for (auto texture : textures) if (texture->Equals( origin, modFlags ))
-	{
-		texture->refCount++;
-		return texture->ID;
-	}
+		{
+			texture->refCount++;
+			return texture->ID;
+		}
 	// nothing found, create a new texture
 	return CreateTexture( origin, modFlags );
 }
@@ -545,10 +552,10 @@ int HostScene::FindOrCreateMaterial( const string& name )
 {
 	// search list for existing texture
 	for (auto material : materials) if (material->name.compare( name ) == 0)
-	{
-		material->refCount++;
-		return material->ID;
-	}
+		{
+			material->refCount++;
+			return material->ID;
+		}
 	// nothing found, create a new texture
 	const int newID = AddMaterial( make_float3( 0 ) );
 	materials[newID]->name = name;
@@ -566,10 +573,10 @@ int HostScene::FindOrCreateMaterialCopy( const int matID, const uint color )
 	// search list for existing material copy
 	const int r = (color >> 16) & 255, g = (color >> 8) & 255, b = color & 255;
 	const float3 c = make_float3( b * (1.0f / 255.0f), g * (1.0f / 255.0f), r * (1.0f / 255.0f ) );
-	for (auto material : materials) 
+	for (auto material : materials)
 	{
-		if (material->flags & HostMaterial::SINGLE_COLOR_COPY && 
-			material->color.value.x == c.x && material->color.value.y == c.y && material->color.value.z == c.z)
+		if (material->flags & HostMaterial::SINGLE_COLOR_COPY &&
+		        material->color.value.x == c.x && material->color.value.y == c.y && material->color.value.z == c.z)
 		{
 			material->refCount++;
 			return material->ID;

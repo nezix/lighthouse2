@@ -85,6 +85,10 @@ HostMesh::HostMesh( const tinygltfMesh& gltfMesh, const tinygltfModel& gltfModel
 	ConvertFromGTLFMesh( gltfMesh, gltfModel, matIdx, materialOverride );
 }
 
+HostMesh::HostMesh( const float *verts, const int *tris, const float *normals, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded ) {
+	LoadGeometryFromMemory(verts, tris, normals, vertCount, triCount, matId, scale, flatShaded);
+}
+
 //  +-----------------------------------------------------------------------------+
 //  |  HostMesh::~HostMesh                                                        |
 //  |  Destructor.                                                          LH2'19|
@@ -168,10 +172,13 @@ void HostMesh::LoadGeometryFromOBJ( const string& fileName, const char* director
 	vector<float> alphas;
 	timer.reset();
 	alphas.resize( verts, 1.0f ); // we will have one alpha value per unique vertex normal
+
 	for (uint s = (uint)shapes.size(), i = 0; i < s; i++)
 	{
 		vector<tinyobj::index_t>& indices = shapes[i].mesh.indices;
-		if (flatShaded) for (uint s = (uint)indices.size(), f = 0; f < s; f++) alphas[indices[f].normal_index] = 1; else
+		if (flatShaded)
+			for (uint s = (uint)indices.size(), f = 0; f < s; f++) alphas[indices[f].normal_index] = 1;
+		else
 			for (uint s = (uint)indices.size(), f = 0; f < s; f += 3)
 			{
 				const int idx0 = indices[f + 0].vertex_index, nidx0 = indices[f + 0].normal_index;
@@ -183,6 +190,7 @@ void HostMesh::LoadGeometryFromOBJ( const string& fileName, const char* director
 				const float3 vN0 = make_float3( attrib.normals[nidx0 * 3 + 0], attrib.normals[nidx0 * 3 + 1], attrib.normals[nidx0 * 3 + 2] );
 				const float3 vN1 = make_float3( attrib.normals[nidx1 * 3 + 0], attrib.normals[nidx1 * 3 + 1], attrib.normals[nidx1 * 3 + 2] );
 				const float3 vN2 = make_float3( attrib.normals[nidx2 * 3 + 0], attrib.normals[nidx2 * 3 + 1], attrib.normals[nidx2 * 3 + 2] );
+
 				float3 N = normalize( cross( vert1 - vert0, vert2 - vert0 ) );
 				if (dot( N, vN0 ) < 0 && dot( N, vN1 ) < 0 && dot( N, vN2 ) < 0) N *= -1.0f; // flip if not consistent with vertex normals
 				// loop over vertices
@@ -207,27 +215,27 @@ void HostMesh::LoadGeometryFromOBJ( const string& fileName, const char* director
 	for (auto& shape : shapes) toReserve += (int)shape.mesh.indices.size();
 	vertices.reserve( toReserve );
 	for (auto& shape : shapes) for (int f = 0; f < shape.mesh.indices.size(); f += 3)
-	{
-		const uint idx0 = shape.mesh.indices[f + 0].vertex_index;
-		const uint idx1 = shape.mesh.indices[f + 1].vertex_index;
-		const uint idx2 = shape.mesh.indices[f + 2].vertex_index;
-		const float3 v0 = make_float3( attrib.vertices[idx0 * 3 + 0], attrib.vertices[idx0 * 3 + 1], attrib.vertices[idx0 * 3 + 2] );
-		const float3 v1 = make_float3( attrib.vertices[idx1 * 3 + 0], attrib.vertices[idx1 * 3 + 1], attrib.vertices[idx1 * 3 + 2] );
-		const float3 v2 = make_float3( attrib.vertices[idx2 * 3 + 0], attrib.vertices[idx2 * 3 + 1], attrib.vertices[idx2 * 3 + 2] );
-		const float4 tv0 = make_float4( v0, 1 ) * transform;
-		const float4 tv1 = make_float4( v1, 1 ) * transform;
-		const float4 tv2 = make_float4( v2, 1 ) * transform;
-		vertices.push_back( tv0 );
-		vertices.push_back( tv1 );
-		vertices.push_back( tv2 );
-		sceneBounds.Grow( make_float3( tv0 ) );
-		sceneBounds.Grow( make_float3( tv1 ) );
-		sceneBounds.Grow( make_float3( tv2 ) );
-	}
+		{
+			const uint idx0 = shape.mesh.indices[f + 0].vertex_index;
+			const uint idx1 = shape.mesh.indices[f + 1].vertex_index;
+			const uint idx2 = shape.mesh.indices[f + 2].vertex_index;
+			const float3 v0 = make_float3( attrib.vertices[idx0 * 3 + 0], attrib.vertices[idx0 * 3 + 1], attrib.vertices[idx0 * 3 + 2] );
+			const float3 v1 = make_float3( attrib.vertices[idx1 * 3 + 0], attrib.vertices[idx1 * 3 + 1], attrib.vertices[idx1 * 3 + 2] );
+			const float3 v2 = make_float3( attrib.vertices[idx2 * 3 + 0], attrib.vertices[idx2 * 3 + 1], attrib.vertices[idx2 * 3 + 2] );
+			const float4 tv0 = make_float4( v0, 1 ) * transform;
+			const float4 tv1 = make_float4( v1, 1 ) * transform;
+			const float4 tv2 = make_float4( v2, 1 ) * transform;
+			vertices.push_back( tv0 );
+			vertices.push_back( tv1 );
+			vertices.push_back( tv2 );
+			sceneBounds.Grow( make_float3( tv0 ) );
+			sceneBounds.Grow( make_float3( tv1 ) );
+			sceneBounds.Grow( make_float3( tv2 ) );
+		}
 	printf( "created polygon soup for %i triangles in %5.3fs\n", (int)vertices.size() / 3, timer.elapsed() );
 	printf( "scene bounds: (%5.2f,%5.2f,%5.2f)-(%5.2f,%5.2f,%5.2f)\n",
-		sceneBounds.bmin3.x, sceneBounds.bmin3.y, sceneBounds.bmin3.z,
-		sceneBounds.bmax3.x, sceneBounds.bmax3.y, sceneBounds.bmax3.z );
+	        sceneBounds.bmin3.x, sceneBounds.bmin3.y, sceneBounds.bmin3.z,
+	        sceneBounds.bmax3.x, sceneBounds.bmax3.y, sceneBounds.bmax3.z );
 	// extract full model data and materials
 	timer.reset();
 	triangles.resize( vertices.size() / 3 );
@@ -277,15 +285,15 @@ void HostMesh::LoadGeometryFromOBJ( const string& fileName, const char* director
 			}
 			tri.Nx = N.x, tri.Ny = N.y, tri.Nz = N.z;
 			tri.material = shapes[i].mesh.material_ids[f / 3] + matIdxOffset;
-		#if 0
+#if 0
 			const float a = (tri.vertex1 - tri.vertex0).length();
 			const float b = (tri.vertex2 - tri.vertex1).length();
 			const float c = (tri.vertex0 - tri.vertex2).length();
 			const float s = (a + b + c) * 0.5f;
 			tri.area = sqrtf( s * (s - a) * (s - b) * (s - c) ); // Heron's formula
-		#else
+#else
 			tri.area = 0; // we don't actually use it, except for lights, where it is also calculated
-		#endif
+#endif
 			tri.invArea = 0; // todo
 			tri.alpha = make_float3( alphas[nidx0], tri.alpha.y = alphas[nidx1], tri.alpha.z = alphas[nidx2] );
 			// calculate triangle LOD data
@@ -301,6 +309,159 @@ void HostMesh::LoadGeometryFromOBJ( const string& fileName, const char* director
 		}
 	}
 	printf( "verbose triangle data in %5.3fs\n", timer.elapsed() );
+}
+
+void HostMesh::LoadGeometryFromMemory( const float *memVert, const int *memTri, const float *memNormals, const int vertCount, const int triCount,
+                                       const int matId, const float scale, const bool flatShaded ) {
+
+	mat4 transform = mat4::Scale( scale );
+
+	// triangles.reserve( triCount ); // precallocate; to be used for procedural meshes.
+	// vertices.reserve( triCount * 3 );
+
+	// for (int i = 0; i < triCount; i++) {
+	// 	int idV1 = memTri[i * 3 + 0];
+	// 	int idV2 = memTri[i * 3 + 1];
+	// 	int idV3 = memTri[i * 3 + 2];
+	// 	float3 v0 = make_float3( memVert[idV1 * 3 + 0], memVert[idV1 * 3 + 1], memVert[idV1 * 3 + 2]);
+	// 	float3 v1 = make_float3( memVert[idV2 * 3 + 0], memVert[idV2 * 3 + 1], memVert[idV2 * 3 + 2]);
+	// 	float3 v2 = make_float3( memVert[idV3 * 3 + 0], memVert[idV3 * 3 + 1], memVert[idV3 * 3 + 2]);
+	// 	vertices.push_back(make_float4(v0, 1));
+	// 	vertices.push_back(make_float4(v1, 1));
+	// 	vertices.push_back(make_float4(v2, 1));
+
+	// 	HostTri tri;
+	// 	tri.material = matId;
+	// 	float3 N = normalize( cross( v1 - v0, v2 - v0 ) );
+	// 	tri.vN0 = tri.vN1 = tri.vN2 = N;
+	// 	tri.Nx = N.x, tri.Ny = N.y, tri.Nz = N.z;
+	// 	tri.vertex0 = v0;
+	// 	tri.vertex1 = v1;
+	// 	tri.vertex2 = v2;
+	// 	triangles.push_back( tri );
+	// }
+
+
+
+	// calculate values for consistent normal interpolation
+	const uint verts = (uint)vertCount;
+	const uint tris = (uint)triCount;
+	vector<float> alphas;
+	alphas.resize( verts, 1.0f ); // we will have one alpha value per unique vertex normal
+	vertices.reserve( tris * 3);
+	// aabb sceneBounds;
+
+	for (uint t = 0; t < tris; t++) {
+		const int idx0 = memTri[t * 3 + 0];
+		const int idx1 = memTri[t * 3 + 1];
+		const int idx2 = memTri[t * 3 + 2];
+
+		const float3 vert0 = make_float3( memVert[idx0 * 3 + 0], memVert[idx0 * 3 + 1], memVert[idx0 * 3 + 2] );
+		const float3 vert1 = make_float3( memVert[idx1 * 3 + 0], memVert[idx1 * 3 + 1], memVert[idx1 * 3 + 2] );
+		const float3 vert2 = make_float3( memVert[idx2 * 3 + 0], memVert[idx2 * 3 + 1], memVert[idx2 * 3 + 2] );
+		const float3 vN0 = make_float3( memNormals[idx0 * 3 + 0], memNormals[idx0 * 3 + 1], memNormals[idx0 * 3 + 2] );
+		const float3 vN1 = make_float3( memNormals[idx1 * 3 + 0], memNormals[idx1 * 3 + 1], memNormals[idx1 * 3 + 2] );
+		const float3 vN2 = make_float3( memNormals[idx2 * 3 + 0], memNormals[idx2 * 3 + 1], memNormals[idx2 * 3 + 2] );
+		float3 N = normalize( cross( vert1 - vert0, vert2 - vert0 ) );
+		if (dot( N, vN0 ) < 0 && dot( N, vN1 ) < 0 && dot( N, vN2 ) < 0) N *= -1.0f; // flip if not consistent with vertex normals
+		// loop over vertices
+		// Note: we clamp at approx. 45 degree angles; beyond this the approach fails.
+		if (!flatShaded) {
+			alphas[idx0] = min( alphas[idx0], max( 0.7f, dot( vN0, N ) ) );
+			alphas[idx1] = min( alphas[idx1], max( 0.7f, dot( vN1, N ) ) );
+			alphas[idx2] = min( alphas[idx2], max( 0.7f, dot( vN2, N ) ) );
+		}
+
+		const float4 tv0 = make_float4( vert0, 1 ) * transform;
+		const float4 tv1 = make_float4( vert1, 1 ) * transform;
+		const float4 tv2 = make_float4( vert2, 1 ) * transform;
+
+		vertices.push_back( tv0 );
+		vertices.push_back( tv1 );
+		vertices.push_back( tv2 );
+		// sceneBounds.Grow( make_float3( tv0 ) );
+		// sceneBounds.Grow( make_float3( tv1 ) );
+		// sceneBounds.Grow( make_float3( tv2 ) );
+	}
+
+	// finalize alpha values based on max dots
+	if (!flatShaded) {
+		const float w = 0.03632f;
+		for (uint i = 0; i < verts; i++)
+		{
+			const float nnv = alphas[i]; // temporarily stored there
+			alphas[i] = acosf( nnv ) * (1 + w * (1 - nnv) * (1 - nnv));
+		}
+	}
+	// extract full model data and materials
+	triangles.resize( tris );
+
+	for (uint t = 0; t < tris; t++) {
+
+		HostTri& tri = triangles[t];
+		tri.vertex0 = make_float3( vertices[t * 3 + 0] );
+		tri.vertex1 = make_float3( vertices[t * 3 + 1] );
+		tri.vertex2 = make_float3( vertices[t * 3 + 2] );
+		const int tidx0 = -1, idx0 = memTri[t * 3 + 0];
+		const int tidx1 = -1, idx1 = memTri[t * 3 + 1];
+		const int tidx2 = -1, idx2 = memTri[t * 3 + 2];
+		tri.vN0 = make_float3( memNormals[idx0 * 3 + 0], memNormals[idx0 * 3 + 1], memNormals[idx0 * 3 + 2] );
+		tri.vN1 = make_float3( memNormals[idx1 * 3 + 0], memNormals[idx1 * 3 + 1], memNormals[idx1 * 3 + 2] );
+		tri.vN2 = make_float3( memNormals[idx2 * 3 + 0], memNormals[idx2 * 3 + 1], memNormals[idx2 * 3 + 2] );
+		const float3 e1 = tri.vertex1 - tri.vertex0;
+		const float3 e2 = tri.vertex2 - tri.vertex0;
+		float3 N = normalize( cross( e1, e2 ) );
+		if (dot( N, tri.vN0 ) < 0) N *= -1.0f; // flip face normal if not consistent with vertex normal
+		if (flatShaded) tri.vN0 = tri.vN1 = tri.vN2 = N;
+		// if (tidx0 > -1)
+		// {
+		// 	tri.u0 = attrib.texcoords[tidx0 * 2 + 0], tri.v0 = attrib.texcoords[tidx0 * 2 + 1];
+		// 	tri.u1 = attrib.texcoords[tidx1 * 2 + 0], tri.v1 = attrib.texcoords[tidx1 * 2 + 1];
+		// 	tri.u2 = attrib.texcoords[tidx2 * 2 + 0], tri.v2 = attrib.texcoords[tidx2 * 2 + 1];
+		// 	// calculate tangent vectors
+		// 	float2 uv01 = make_float2( tri.u1 - tri.u0, tri.v1 - tri.v0 );
+		// 	float2 uv02 = make_float2( tri.u2 - tri.u0, tri.v2 - tri.v0 );
+		// 	if (dot( uv01, uv01 ) == 0 || dot( uv02, uv02 ) == 0)
+		// 	{
+		// 		tri.T = normalize( tri.vertex1 - tri.vertex0 );
+		// 		tri.B = normalize( cross( N, tri.T ) );
+		// 	}
+		// 	else
+		// 	{
+		// 		tri.T = normalize( e1 * uv02.y - e2 * uv01.y );
+		// 		tri.B = normalize( e2 * uv01.x - e1 * uv02.x );
+		// 	}
+		// }
+		// else
+		// {
+		tri.T = normalize( e1 );
+		tri.B = normalize( cross( N, tri.T ) );
+		// }
+		tri.Nx = N.x, tri.Ny = N.y, tri.Nz = N.z;
+		tri.material = matId;
+#if 0
+		const float a = (tri.vertex1 - tri.vertex0).length();
+		const float b = (tri.vertex2 - tri.vertex1).length();
+		const float c = (tri.vertex0 - tri.vertex2).length();
+		const float s = (a + b + c) * 0.5f;
+		tri.area = sqrtf( s * (s - a) * (s - b) * (s - c) ); // Heron's formula
+#else
+		tri.area = 0; // we don't actually use it, except for lights, where it is also calculated
+#endif
+		tri.invArea = 0; // todo
+		tri.alpha = make_float3( alphas[idx0], tri.alpha.y = alphas[idx1], tri.alpha.z = alphas[idx2] );
+		// calculate triangle LOD data
+		// HostMaterial* mat = HostScene::materials[tri.material];
+		// int textureID = mat->color.textureID;
+		// if (textureID > -1)
+		// {
+		// 	HostTexture* texture = HostScene::textures[textureID];
+		// 	float Ta = (float)(texture->width * texture->height) * fabs( (tri.u1 - tri.u0) * (tri.v2 - tri.v0) - (tri.u2 - tri.u0) * (tri.v1 - tri.v0) );
+		// 	float Pa = length( cross( tri.vertex1 - tri.vertex0, tri.vertex2 - tri.vertex0 ) );
+		// 	tri.LOD = 0.5f * log2f( Ta / Pa );
+		// }
+	}
+
 }
 
 //  +-----------------------------------------------------------------------------+
@@ -490,7 +651,7 @@ void HostMesh::ConvertFromGTLFMesh( const tinygltfMesh& gltfMesh, const tinygltf
 		}
 		// all data has been read; add triangles to the HostMesh
 		BuildFromIndexedData( tmpIndices, tmpVertices, tmpNormals, tmpUvs, tmpUv2s, tmpTs, tmpPoses,
-			tmpJoints, tmpWeights, materialOverride == -1 ? matIdx[prim.material] : materialOverride );
+		                      tmpJoints, tmpWeights, materialOverride == -1 ? matIdx[prim.material] : materialOverride );
 	}
 }
 
@@ -501,9 +662,9 @@ void HostMesh::ConvertFromGTLFMesh( const tinygltfMesh& gltfMesh, const tinygltf
 //  |  data, which we now convert to the final representation.              LH2'19|
 //  +-----------------------------------------------------------------------------+
 void HostMesh::BuildFromIndexedData( const vector<int>& tmpIndices, const vector<float3>& tmpVertices,
-	const vector<float3>& tmpNormals, const vector<float2>& tmpUvs, const vector<float2>& tmpUv2s,
-	const vector<float4>& tmpTs, const vector<Pose>& tmpPoses,
-	const vector<uint4>& tmpJoints, const vector<float4>& tmpWeights, const int materialIdx )
+                                     const vector<float3>& tmpNormals, const vector<float2>& tmpUvs, const vector<float2>& tmpUv2s,
+                                     const vector<float4>& tmpTs, const vector<Pose>& tmpPoses,
+                                     const vector<uint4>& tmpJoints, const vector<float4>& tmpWeights, const int materialIdx )
 {
 	// calculate values for consistent normal interpolation
 	vector<float> tmpAlphas;
@@ -561,8 +722,8 @@ void HostMesh::BuildFromIndexedData( const vector<int>& tmpIndices, const vector
 		tri.alpha = make_float3( tmpAlphas[v0idx], tmpAlphas[v1idx], tmpAlphas[v2idx] );
 		if (tmpNormals.size() > 0)
 			tri.vN0 = tmpNormals[v0idx],
-			tri.vN1 = tmpNormals[v1idx],
-			tri.vN2 = tmpNormals[v2idx];
+			    tri.vN1 = tmpNormals[v1idx],
+			        tri.vN2 = tmpNormals[v2idx];
 		else
 			tri.vN0 = tri.vN1 = tri.vN2 = N;
 		if (tmpUvs.size() > 0)
@@ -589,16 +750,16 @@ void HostMesh::BuildFromIndexedData( const vector<int>& tmpIndices, const vector
 			float2 uv02 = make_float2( tri.u2 - tri.u0, tri.v2 - tri.v0 );
 			if (dot( uv01, uv01 ) == 0 || dot( uv02, uv02 ) == 0)
 			{
-			#if 1
+#if 1
 				// PBRT:
 				// https://github.com/mmp/pbrt-v3/blob/3f94503ae1777cd6d67a7788e06d67224a525ff4/src/shapes/triangle.cpp#L381
 				if (std::abs( N.x ) > std::abs( N.y ))
 					tri.T = make_float3( -N.z, 0, N.x ) / std::sqrt( N.x * N.x + N.z * N.z );
 				else
 					tri.T = make_float3( 0, N.z, -N.y ) / std::sqrt( N.y * N.y + N.z * N.z );
-			#else
+#else
 				tri.T = normalize( tri.vertex1 - tri.vertex0 );
-			#endif
+#endif
 				tri.B = normalize( cross( N, tri.T ) );
 			}
 			else
@@ -712,8 +873,8 @@ void HostMesh::SetPose( const vector<float>& weights )
 		triangles[i].vN2 = poses[0].normals[i * 3 + 2];
 		for (int j = 1; j <= weightCount; j++)
 			triangles[i].vN0 += poses[j].normals[i * 3 + 0],
-			triangles[i].vN1 += poses[j].normals[i * 3 + 1],
-			triangles[i].vN2 += poses[j].normals[i * 3 + 2];
+			                    triangles[i].vN1 += poses[j].normals[i * 3 + 1],
+			                                        triangles[i].vN2 += poses[j].normals[i * 3 + 2];
 		triangles[i].vN0 = normalize( triangles[i].vN0 );
 		triangles[i].vN1 = normalize( triangles[i].vN1 );
 		triangles[i].vN2 = normalize( triangles[i].vN2 );
@@ -759,10 +920,10 @@ void HostMesh::SetPose( const HostSkin* skin )
 	// adjust full triangles
 #ifdef USE_PARALLEL_SETPOSE
 	concurrency::parallel_for<int>( 0, (int)triangles.size(), [&]( int t ) {
-	#else
+#else
 	for (int s = (int)triangles.size(), t = 0; t < s; t++)
 	{
-	#endif
+#endif
 		__m128 tri_vtx[3], tri_nrm[3];
 		// adjust vertices of triangle
 		for (int t_v = 0; t_v < 3; t_v++)
@@ -809,8 +970,8 @@ void HostMesh::SetPose( const HostSkin* skin )
 			// multiply vertex with skin matrix, multiply normal with skin matrix
 			// using HADD and MUL is faster than OR and DP
 			combined = _mm256_hadd_ps(
-				_mm256_hadd_ps( _mm256_mul_ps( combined, skinM0 ), _mm256_mul_ps( combined, skinM1 ) ),
-				_mm256_hadd_ps( _mm256_mul_ps( combined, skinM2 ), _mm256_mul_ps( combined, skinM3 ) ) );
+			               _mm256_hadd_ps( _mm256_mul_ps( combined, skinM0 ), _mm256_mul_ps( combined, skinM1 ) ),
+			               _mm256_hadd_ps( _mm256_mul_ps( combined, skinM2 ), _mm256_mul_ps( combined, skinM3 ) ) );
 			// extract vertex and normal from combined vector
 			__m128 vtx = _mm256_castps256_ps128( combined );
 			__m128 norm = _mm256_extractf128_ps( combined, 1 );
@@ -835,7 +996,7 @@ void HostMesh::SetPose( const HostSkin* skin )
 		// |a.x|   |b.x|   | a.y * b.z - a.z * b.y |
 		// shuffle(..., 0b010010) = [x, y, z] -> [z, x, y] or [y, z, x] -> [x, y, z]
 		__m128 N = _mm_fmsub_ps( N_b, _mm_shuffle_ps( N_a, N_a, 0b010010 ),
-			_mm_mul_ps( N_a, _mm_shuffle_ps( N_b, N_b, 0b010010 ) ) );
+		                         _mm_mul_ps( N_a, _mm_shuffle_ps( N_b, N_b, 0b010010 ) ) );
 		// reshuffle to get final result
 		N = _mm_shuffle_ps( N, N, 0b010010 );
 		// normalize cross product
@@ -859,7 +1020,7 @@ void HostMesh::SetPose( const HostSkin* skin )
 		_mm_store_ps( &triangles[t].vN2.x, tri_nrm[2] );
 	}
 #ifdef USE_PARALLEL_SETPOSE
-	);
+	                              );
 #endif
 
 #else
