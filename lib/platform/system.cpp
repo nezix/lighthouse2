@@ -319,19 +319,20 @@ bool NeedsRecompile( const char* path, const char* target, const char* s1, const
 
 void FatalError( const char* fmt, ... )
 {
+
 	char t[16384];
 	va_list args;
 	va_start( args, fmt );
 	vsnprintf( t, sizeof( t ), fmt, args );
 	va_end( args );
 
-#ifdef _MSC_VER
-	MessageBox( NULL, t, "Fatal error", MB_OK );
-#else
+// #ifdef _MSC_VER
+// 	MessageBox( NULL, t, "Fatal error", MB_OK );
+// #else
 	fprintf( stderr, t );
-#endif
-	assert( false );
-	while (1) exit( EXIT_FAILURE );
+// #endif
+	// assert( false );
+	// while (1) exit( EXIT_FAILURE );
 }
 
 // EOF
