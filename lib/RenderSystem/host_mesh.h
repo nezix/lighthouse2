@@ -52,12 +52,12 @@ public:
 	HostMesh( const int triCount );
 	HostMesh( const char* name, const char* dir, const float scale = 1.0f, const bool flatShaded = false );
 	HostMesh( const tinygltfMesh& gltfMesh, const tinygltfModel& gltfModel, const vector<int>& matIdx, const int materialOverride = -1 );
-	HostMesh( const float *verts, const int *tris, const float *norms, const int vertCount, const int triCount, const int matId, const float scale = 1.0f, const bool flatShaded = false );
+	HostMesh( const float *verts, const int *tris, const float *norms, const float *cols, const int vertCount, const int triCount, const int matId, const float scale = 1.0f, const bool flatShaded = false );
 	~HostMesh();
 	// methods
 	void LoadGeometry( const char* file, const char* dir, const float scale = 1.0f, const bool flatShaded = false );
 	void LoadGeometryFromOBJ( const string& fileName, const char* directory, const mat4& transform, const bool flatShaded = false );
-	void LoadGeometryFromMemory( const float *vertices, const int *triangles, const float *memNormals, const int vertCount, const  int triCount, const int matId, const float scale, const bool flatShaded);
+	void LoadGeometryFromMemory( const float *vertices, const int *triangles, const float *memNormals, const float *memCols, const int vertCount, const  int triCount, const int matId, const float scale, const bool flatShaded);
 	void ConvertFromGTLFMesh( const tinygltfMesh& gltfMesh, const tinygltfModel& gltfModel, const vector<int>& matIdx, const int materialOverride );
 	void BuildFromIndexedData( const vector<int>& tmpIndices, const vector<float3>& tmpVertices,
 		const vector<float3>& tmpNormals, const vector<float2>& tmpUvs, const vector<float2>& tmpUv2s, 
@@ -69,11 +69,12 @@ public:
 	// data members
 	string name = "unnamed";					// name for the mesh						
 	int ID = -1;								// unique ID for the mesh: position in mesh array
+	bool hasVertColors = false;
 	vector<float4> vertices;					// model vertices
+	vector<int3> indices;    					// model indices
 	vector<float3> vertexNormals;				// vertex normals
 	vector<float4> original;					// skinning: base pose; will be transformed into vector vertices
 	vector<float3> origNormal;					// skinning: base pose normals
-	vector<float4> colors;					    // model vertex colors
 	vector<HostTri> triangles;					// full triangles
 	vector<int> materialList;					// list of materials used by the mesh; used to efficiently track light changes
 	vector<uint4> joints;						// skinning: joints

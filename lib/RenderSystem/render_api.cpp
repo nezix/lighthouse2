@@ -71,9 +71,9 @@ int RenderAPI::AddMesh( const int triCount )
 	return renderer->scene->AddMesh( triCount );
 }
 
-int RenderAPI::AddMesh( const float *vertices, const int *triangles, const float *normals, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded )
+int RenderAPI::AddMesh( const float *vertices, const int *triangles, const float *normals, const float *cols, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded )
 {
-	return renderer->scene->AddMesh( vertices, triangles, normals, vertCount, triCount, matId, scale, flatShaded );
+	return renderer->scene->AddMesh( vertices, triangles, normals, cols, vertCount, triCount, matId, scale, flatShaded );
 }
 
 void RenderAPI::AddTriToMesh( const int meshId, const float3& v0, const float3& v1, const float3& v2, const int matId )

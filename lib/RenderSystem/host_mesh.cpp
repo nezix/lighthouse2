@@ -85,8 +85,8 @@ HostMesh::HostMesh( const tinygltfMesh& gltfMesh, const tinygltfModel& gltfModel
 	ConvertFromGTLFMesh( gltfMesh, gltfModel, matIdx, materialOverride );
 }
 
-HostMesh::HostMesh( const float *verts, const int *tris, const float *normals, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded ) {
-	LoadGeometryFromMemory(verts, tris, normals, vertCount, triCount, matId, scale, flatShaded);
+HostMesh::HostMesh( const float *verts, const int *tris, const float *normals, const float *cols, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded ) {
+	LoadGeometryFromMemory(verts, tris, normals, cols, vertCount, triCount, matId, scale, flatShaded);
 }
 
 //  +-----------------------------------------------------------------------------+
@@ -311,35 +311,41 @@ void HostMesh::LoadGeometryFromOBJ( const string& fileName, const char* director
 	printf( "verbose triangle data in %5.3fs\n", timer.elapsed() );
 }
 
-void HostMesh::LoadGeometryFromMemory( const float *memVert, const int *memTri, const float *memNormals, const int vertCount, const int triCount,
+void HostMesh::LoadGeometryFromMemory( const float *memVert, const int *memTri, const float *memNormals, const float *memColors, const int vertCount, const int triCount,
                                        const int matId, const float scale, const bool flatShaded ) {
 
 	mat4 transform = mat4::Scale( scale );
 
-	// triangles.reserve( triCount ); // precallocate; to be used for procedural meshes.
-	// vertices.reserve( triCount * 3 );
+	materialList.clear();
+	materialList.reserve( 1 );
+	// materialList.push_back(matId);
 
-	// for (int i = 0; i < triCount; i++) {
-	// 	int idV1 = memTri[i * 3 + 0];
-	// 	int idV2 = memTri[i * 3 + 1];
-	// 	int idV3 = memTri[i * 3 + 2];
-	// 	float3 v0 = make_float3( memVert[idV1 * 3 + 0], memVert[idV1 * 3 + 1], memVert[idV1 * 3 + 2]);
-	// 	float3 v1 = make_float3( memVert[idV2 * 3 + 0], memVert[idV2 * 3 + 1], memVert[idV2 * 3 + 2]);
-	// 	float3 v2 = make_float3( memVert[idV3 * 3 + 0], memVert[idV3 * 3 + 1], memVert[idV3 * 3 + 2]);
-	// 	vertices.push_back(make_float4(v0, 1));
-	// 	vertices.push_back(make_float4(v1, 1));
-	// 	vertices.push_back(make_float4(v2, 1));
+	int matid = (int)HostScene::materials.size();
+	string matName = "MeshMat_" + std::to_string(matid);
+	int materialId = HostScene::FindMaterialIDByOrigin( matName.c_str() );
+	if (materialId != -1)
+	{
+		// material already exists; reuse
+		materialList.push_back( materialId );
+	}
+	else
+	{
+		materialId = matid;
+		// create new material
+		HostMaterial* material = new HostMaterial();
+		material->ID = matid;
+		material->name = matName;
 
-	// 	HostTri tri;
-	// 	tri.material = matId;
-	// 	float3 N = normalize( cross( v1 - v0, v2 - v0 ) );
-	// 	tri.vN0 = tri.vN1 = tri.vN2 = N;
-	// 	tri.Nx = N.x, tri.Ny = N.y, tri.Nz = N.z;
-	// 	tri.vertex0 = v0;
-	// 	tri.vertex1 = v1;
-	// 	tri.vertex2 = v2;
-	// 	triangles.push_back( tri );
-	// }
+		material->color.value = make_float3(1);
+		material->metallic.value = 1.0f;
+		material->roughness.value = 1.0f;
+
+		material->flags |= HostMaterial::FROM_MTL;
+
+		HostScene::materials.push_back( material );
+
+		materialList.push_back( material->ID );
+	}
 
 
 
@@ -349,12 +355,16 @@ void HostMesh::LoadGeometryFromMemory( const float *memVert, const int *memTri, 
 	vector<float> alphas;
 	alphas.resize( verts, 1.0f ); // we will have one alpha value per unique vertex normal
 	vertices.reserve( tris * 3);
+	vector<float4> tricols;
+	tricols.reserve(tris * 3);
+	indices.reserve(tris);
 	// aabb sceneBounds;
 
 	for (uint t = 0; t < tris; t++) {
 		const int idx0 = memTri[t * 3 + 0];
 		const int idx1 = memTri[t * 3 + 1];
 		const int idx2 = memTri[t * 3 + 2];
+		indices.push_back(make_int3(idx0, idx1, idx2));
 
 		const float3 vert0 = make_float3( memVert[idx0 * 3 + 0], memVert[idx0 * 3 + 1], memVert[idx0 * 3 + 2] );
 		const float3 vert1 = make_float3( memVert[idx1 * 3 + 0], memVert[idx1 * 3 + 1], memVert[idx1 * 3 + 2] );
@@ -379,6 +389,14 @@ void HostMesh::LoadGeometryFromMemory( const float *memVert, const int *memTri, 
 		vertices.push_back( tv0 );
 		vertices.push_back( tv1 );
 		vertices.push_back( tv2 );
+
+		float4 col0 = make_float4(memColors[idx0 * 4 + 0], memColors[idx0 * 4 + 1], memColors[idx0 * 4 + 2], memColors[idx0 * 4 + 3]);
+		float4 col1 = make_float4(memColors[idx1 * 4 + 0], memColors[idx1 * 4 + 1], memColors[idx1 * 4 + 2], memColors[idx1 * 4 + 3]);
+		float4 col2 = make_float4(memColors[idx2 * 4 + 0], memColors[idx2 * 4 + 1], memColors[idx2 * 4 + 2], memColors[idx2 * 4 + 3]);
+
+		tricols.push_back( col0 );
+		tricols.push_back( col1 );
+		tricols.push_back( col2 );
 		// sceneBounds.Grow( make_float3( tv0 ) );
 		// sceneBounds.Grow( make_float3( tv1 ) );
 		// sceneBounds.Grow( make_float3( tv2 ) );
@@ -413,54 +431,25 @@ void HostMesh::LoadGeometryFromMemory( const float *memVert, const int *memTri, 
 		float3 N = normalize( cross( e1, e2 ) );
 		if (dot( N, tri.vN0 ) < 0) N *= -1.0f; // flip face normal if not consistent with vertex normal
 		if (flatShaded) tri.vN0 = tri.vN1 = tri.vN2 = N;
-		// if (tidx0 > -1)
-		// {
-		// 	tri.u0 = attrib.texcoords[tidx0 * 2 + 0], tri.v0 = attrib.texcoords[tidx0 * 2 + 1];
-		// 	tri.u1 = attrib.texcoords[tidx1 * 2 + 0], tri.v1 = attrib.texcoords[tidx1 * 2 + 1];
-		// 	tri.u2 = attrib.texcoords[tidx2 * 2 + 0], tri.v2 = attrib.texcoords[tidx2 * 2 + 1];
-		// 	// calculate tangent vectors
-		// 	float2 uv01 = make_float2( tri.u1 - tri.u0, tri.v1 - tri.v0 );
-		// 	float2 uv02 = make_float2( tri.u2 - tri.u0, tri.v2 - tri.v0 );
-		// 	if (dot( uv01, uv01 ) == 0 || dot( uv02, uv02 ) == 0)
-		// 	{
-		// 		tri.T = normalize( tri.vertex1 - tri.vertex0 );
-		// 		tri.B = normalize( cross( N, tri.T ) );
-		// 	}
-		// 	else
-		// 	{
-		// 		tri.T = normalize( e1 * uv02.y - e2 * uv01.y );
-		// 		tri.B = normalize( e2 * uv01.x - e1 * uv02.x );
-		// 	}
-		// }
-		// else
-		// {
+
 		tri.T = normalize( e1 );
 		tri.B = normalize( cross( N, tri.T ) );
 		// }
 		tri.Nx = N.x, tri.Ny = N.y, tri.Nz = N.z;
-		tri.material = matId;
-#if 0
-		const float a = (tri.vertex1 - tri.vertex0).length();
-		const float b = (tri.vertex2 - tri.vertex1).length();
-		const float c = (tri.vertex0 - tri.vertex2).length();
-		const float s = (a + b + c) * 0.5f;
-		tri.area = sqrtf( s * (s - a) * (s - b) * (s - c) ); // Heron's formula
-#else
+		tri.material = materialId;
+		// int idMat = colToMatId[tricols[t]];
+		// tri.material = idMat;
+
 		tri.area = 0; // we don't actually use it, except for lights, where it is also calculated
-#endif
 		tri.invArea = 0; // todo
 		tri.alpha = make_float3( alphas[idx0], tri.alpha.y = alphas[idx1], tri.alpha.z = alphas[idx2] );
-		// calculate triangle LOD data
-		// HostMaterial* mat = HostScene::materials[tri.material];
-		// int textureID = mat->color.textureID;
-		// if (textureID > -1)
-		// {
-		// 	HostTexture* texture = HostScene::textures[textureID];
-		// 	float Ta = (float)(texture->width * texture->height) * fabs( (tri.u1 - tri.u0) * (tri.v2 - tri.v0) - (tri.u2 - tri.u0) * (tri.v1 - tri.v0) );
-		// 	float Pa = length( cross( tri.vertex1 - tri.vertex0, tri.vertex2 - tri.vertex0 ) );
-		// 	tri.LOD = 0.5f * log2f( Ta / Pa );
-		// }
+
+		tri.vertcol0 = tricols[t * 3 + 0];
+		tri.vertcol1 = tricols[t * 3 + 1];
+		tri.vertcol2 = tricols[t * 3 + 2];
+
 	}
+	hasVertColors = true;
 
 }
 
@@ -878,6 +867,16 @@ void HostMesh::SetPose( const vector<float>& weights )
 		triangles[i].vN0 = normalize( triangles[i].vN0 );
 		triangles[i].vN1 = normalize( triangles[i].vN1 );
 		triangles[i].vN2 = normalize( triangles[i].vN2 );
+		// if (!hasVertColors) {
+		// 	triangles[i].vertcol0 = make_float4(1);
+		// 	triangles[i].vertcol1 = make_float4(1);
+		// 	triangles[i].vertcol2 = make_float4(1);
+		// }
+		// else {
+		// 	triangles[i].vertcol0 = colors[i * 3 + 0];
+		// 	triangles[i].vertcol1 = colors[i * 3 + 1];
+		// 	triangles[i].vertcol2 = colors[i * 3 + 2];
+		// }
 	}
 	// mark as dirty; changing vector contents doesn't trigger this
 	MarkAsDirty();

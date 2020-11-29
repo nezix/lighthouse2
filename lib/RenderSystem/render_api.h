@@ -41,7 +41,7 @@ public:
 	int AddScene( const char* file, const char* dir, const mat4& transform = mat4::Identity() );
 	int AddScene( const char* file, const mat4& transform = mat4::Identity() );
 	int AddMesh( const int triCount );
-    int AddMesh(const float *vertices, const int *triangles, const float *normals, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded );
+    int AddMesh(const float *vertices, const int *triangles, const float *normals, const float *cols, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded );
 	void AddTriToMesh( const int meshId, const float3& v0, const float3& v1, const float3& v2, const int matId );
 	int AddQuad( const float3 N, const float3 pos, const float width, const float height, const int material, const int meshID = -1 );
 	int AddInstance( const int meshId, const mat4& transform = mat4() );

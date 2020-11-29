@@ -201,9 +201,9 @@ int HostScene::AddMesh( const char* objFile, const char* dir, const float scale,
 }
 
 //Create mesh from parameter buffers
-int HostScene::AddMesh(const float *vertices, const int *triangles, const float *normals, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded )
+int HostScene::AddMesh(const float *vertices, const int *triangles, const float *normals, const float *cols, const int vertCount, const int triCount, const int matId, const float scale, const bool flatShaded )
 {
-	HostMesh* newMesh = new HostMesh( vertices, triangles, normals, vertCount, triCount, matId, scale, flatShaded );
+	HostMesh* newMesh = new HostMesh( vertices, triangles, normals, cols, vertCount, triCount, matId, scale, flatShaded );
 	return AddMesh( newMesh );
 }
 

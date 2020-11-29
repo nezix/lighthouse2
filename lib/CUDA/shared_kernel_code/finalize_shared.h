@@ -36,12 +36,49 @@ __global__ void finalizeRenderKernel( const float4* accumulator, const int scrwi
 	float4 value = accumulator[x + y * scrwidth] * pixelValueScale;
 	surf2Dwrite<float4>( value, renderTarget, x * sizeof( float4 ), y, cudaBoundaryModeClamp );
 }
+
+__global__ void onlyFinalizeRenderKernel(const float4* accumulator, float4* outBuffer, const int scrwidth, const int scrheight, const float pixelValueScale )
+{
+	// get x and y for pixel
+	const int x = threadIdx.x + blockIdx.x * blockDim.x;
+	const int y = threadIdx.y + blockIdx.y * blockDim.y;
+	if ((x >= scrwidth) || (y >= scrheight)) return;
+	// plot scaled pixel
+	float4 value = accumulator[x + y * scrwidth] * pixelValueScale;
+	outBuffer[x + y * scrwidth] = value;
+	//surf2Dwrite<float4>( value, renderTarget, x * sizeof( float4 ), y, cudaBoundaryModeClamp );
+}
+
+__global__ void writeToTexture( const float4* imageBuffer, const int scrwidth, const int scrheight )
+{
+	// get x and y for pixel
+	const int x = threadIdx.x + blockIdx.x * blockDim.x;
+	const int y = threadIdx.y + blockIdx.y * blockDim.y;
+	if ((x >= scrwidth) || (y >= scrheight)) return;
+	surf2Dwrite<float4>( imageBuffer[x + y * scrwidth], renderTarget, x * sizeof( float4 ), y, cudaBoundaryModeClamp );
+}
 __host__ void finalizeRender( const float4* accumulator, const int w, const int h, const int spp )
 {
 	const float pixelValueScale = 1.0f / (float)spp;
 	const dim3 gridDim( NEXTMULTIPLEOF( w, 32 ) / 32, NEXTMULTIPLEOF( h, 8 ) / 8 ), blockDim( 32, 8 );
 	// https://www.dfstudios.co.uk/articles/programming/image-programming-algorithms/image-processing-algorithms-part-5-contrast-adjustment
 	finalizeRenderKernel << < gridDim, blockDim >> > (accumulator, w, h, pixelValueScale);
+}
+
+__host__ void finalizeRender_step1( const float4* accumulator, float4 *outBuffer, const int w, const int h, const int spp )
+{
+	const float pixelValueScale = 1.0f / (float)spp;
+	const dim3 gridDim( NEXTMULTIPLEOF( w, 32 ) / 32, NEXTMULTIPLEOF( h, 8 ) / 8 ), blockDim( 32, 8 );
+	// https://www.dfstudios.co.uk/articles/programming/image-programming-algorithms/image-processing-algorithms-part-5-contrast-adjustment
+	onlyFinalizeRenderKernel << < gridDim, blockDim >> > (accumulator, outBuffer, w, h, pixelValueScale);
+}
+
+__host__ void finalizeRender_step2( const float4* imageBuff, const int w, const int h, const int spp )
+{
+	const float pixelValueScale = 1.0f / (float)spp;
+	const dim3 gridDim( NEXTMULTIPLEOF( w, 32 ) / 32, NEXTMULTIPLEOF( h, 8 ) / 8 ), blockDim( 32, 8 );
+	// https://www.dfstudios.co.uk/articles/programming/image-programming-algorithms/image-processing-algorithms-part-5-contrast-adjustment
+	writeToTexture << < gridDim, blockDim >> > (imageBuff, w, h);
 }
 
 __global__ void finalizeFeaturesKernel( const float4* features, const int scrwidth, const int scrheight, const int spp )
@@ -98,7 +135,7 @@ __host__ void finalizeASRender( const float4* frameAcc, float4* accumulator, con
 //  |  to the variance estimate.                                            LH2'20|
 //  +-----------------------------------------------------------------------------+
 __global__ void estimateVarianceKernel( const float4* accumulator, const float4* features,
-	float* deviation, const float scale, const int scrwidth, const int scrheight, const int spp )
+                                        float* deviation, const float scale, const int scrwidth, const int scrheight, const int spp )
 {
 	// get x and y for pixel
 	const int x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -112,24 +149,24 @@ __global__ void estimateVarianceKernel( const float4* accumulator, const float4*
 	{
 		const float3 Nlocal = UnpackNormal2( __float_as_uint( features[x + y * scrwidth + i * scrwidth * scrheight].w ) );
 		for (int v = y1; v <= y2; v++) for (int u = x1; u <= x2; u++)
-		{
-			const uint pixelAddress = u + v * scrwidth + i * scrwidth * scrheight;
-			const float4 feature = features[pixelAddress];
-			const float3 normal = UnpackNormal2( __float_as_uint( feature.w ) );
-			const float3 albedo = make_float3( feature );
-			const float3 sample = make_float3( accumulator[pixelAddress] );
-			const float3 lighting = make_float3(
-				sample.x / max( albedo.x, 0.001f ),
-				sample.y / max( albedo.y, 0.001f ),
-				sample.z / max( albedo.z, 0.001f )
-			);
-			const uint dx = abs( x - u ), dy = abs( y - v );
-			const float xweight = dx == 1 ? 0.9f : (dx == 2 ? 0.75f : (dx == 3 ? 0.55f : (dx == 4 ? 0.35f : 1.0f)));
-			const float yweight = dy == 1 ? 0.9f : (dy == 2 ? 0.75f : (dy == 3 ? 0.55f : (dy == 4 ? 0.35f : 1.0f)));
-			const float weight = xweight * yweight * powf( max( 0.0001f, dot( normal, Nlocal ) ), 2 );
-			weightSum += weight;
-			total += lighting * weight;
-		}
+			{
+				const uint pixelAddress = u + v * scrwidth + i * scrwidth * scrheight;
+				const float4 feature = features[pixelAddress];
+				const float3 normal = UnpackNormal2( __float_as_uint( feature.w ) );
+				const float3 albedo = make_float3( feature );
+				const float3 sample = make_float3( accumulator[pixelAddress] );
+				const float3 lighting = make_float3(
+				                            sample.x / max( albedo.x, 0.001f ),
+				                            sample.y / max( albedo.y, 0.001f ),
+				                            sample.z / max( albedo.z, 0.001f )
+				                        );
+				const uint dx = abs( x - u ), dy = abs( y - v );
+				const float xweight = dx == 1 ? 0.9f : (dx == 2 ? 0.75f : (dx == 3 ? 0.55f : (dx == 4 ? 0.35f : 1.0f)));
+				const float yweight = dy == 1 ? 0.9f : (dy == 2 ? 0.75f : (dy == 3 ? 0.55f : (dy == 4 ? 0.35f : 1.0f)));
+				const float weight = xweight * yweight * powf( max( 0.0001f, dot( normal, Nlocal ) ), 2 );
+				weightSum += weight;
+				total += lighting * weight;
+			}
 	}
 	const float3 average = total * (1.0f / weightSum);
 	// calculate variance for the pixel
@@ -140,10 +177,10 @@ __global__ void estimateVarianceKernel( const float4* accumulator, const float4*
 		const float3 albedo = make_float3( features[pixelAddress] );
 		const float3 sample = make_float3( accumulator[pixelAddress] );
 		const float3 lighting = make_float3(
-			sample.x / max( albedo.x, 0.001f ),
-			sample.y / max( albedo.y, 0.001f ),
-			sample.z / max( albedo.z, 0.001f )
-		);
+		                            sample.x / max( albedo.x, 0.001f ),
+		                            sample.y / max( albedo.y, 0.001f ),
+		                            sample.z / max( albedo.z, 0.001f )
+		                        );
 		const float sampleVar = sqr( Luminance( lighting ) - Luminance( average ) );
 		variance += sampleVar;
 	}
@@ -153,7 +190,7 @@ __global__ void estimateVarianceKernel( const float4* accumulator, const float4*
 	deviation[x + y * scrwidth] = d * scale;
 }
 __host__ void estimateVariance( const float4* accumulator, const float4* features,
-	float* deviation, const float scale, const int w, const int h, const int spp )
+                                float* deviation, const float scale, const int w, const int h, const int spp )
 {
 	const dim3 gridDim( NEXTMULTIPLEOF( w, 32 ) / 32, NEXTMULTIPLEOF( h, 8 ) / 8 ), blockDim( 32, 8 );
 	estimateVarianceKernel << < gridDim, blockDim >> > (accumulator, features, deviation, scale, w, h, spp);
@@ -215,9 +252,9 @@ LH2_DEVFUNC int RefineHistoryPos( float2& currentScreenPos, const float2& offset
 	return bestTap;
 }
 __global__ void prepareFilterKernel( const float4* accumulator, uint4* features, const float4* worldPos, const float4* prevWorldPos,
-	float4* shading, float2* motion, float4* moments, float4* prevMoments, const float4* deltaDepth,
-	const float4 prevPos, const float4 prevE, const float4 prevRight, const float4 prevUp, const float j0, const float j1, const float prevj0, const float prevj1,
-	const int scrwidth, const int scrheight, const float pixelValueScale, const float directClamp, const float indirectClamp, const int camIsStationary )
+                                     float4* shading, float2* motion, float4* moments, float4* prevMoments, const float4* deltaDepth,
+                                     const float4 prevPos, const float4 prevE, const float4 prevRight, const float4 prevUp, const float j0, const float j1, const float prevj0, const float prevj1,
+                                     const int scrwidth, const int scrheight, const float pixelValueScale, const float directClamp, const float indirectClamp, const int camIsStationary )
 {
 	// get x and y for pixel
 	const int x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -291,9 +328,9 @@ __global__ void prepareFilterKernel( const float4* accumulator, uint4* features,
 	moments[pixelIdx] = make_float4( lumDirect, lumDirect2, lumIndirect, lumIndirect2 );
 }
 __host__ void prepareFilter( const float4* accumulator, uint4* features, const float4* worldPos, const float4* prevWorldPos,
-	float4* shading, float2* motion, float4* moments, float4* prevMoments, const float4* deltaDepth,
-	const ViewPyramid& prevView, const float j0, const float j1, const float prevj0, const float prevj1,
-	const int w, const int h, const uint spp, const float directClamp, const float indirectClamp, const int camIsStationary )
+                             float4* shading, float2* motion, float4* moments, float4* prevMoments, const float4* deltaDepth,
+                             const ViewPyramid& prevView, const float j0, const float j1, const float prevj0, const float prevj1,
+                             const int w, const int h, const uint spp, const float directClamp, const float indirectClamp, const int camIsStationary )
 {
 	const float pixelValueScale = 1.0f / (float)spp;
 	const dim3 gridDim( NEXTMULTIPLEOF( w, 32 ) / 32, NEXTMULTIPLEOF( h, 8 ) / 8 ), blockDim( 32, 8 );
@@ -306,11 +343,11 @@ __host__ void prepareFilter( const float4* accumulator, uint4* features, const f
 	const float screenSize = length( prevView.p3 - prevView.p1 );
 	const float lenReci = h / screenSize;
 	prepareFilterKernel << < gridDim, blockDim >> > (accumulator, features, worldPos, prevWorldPos, shading, motion, moments, prevMoments, deltaDepth,
-		make_float4( prevView.pos, -(dot( prevView.pos, direction ) - dot( centre, direction )) ),
-		make_float4( direction, 0 ),
-		make_float4( right * lenReci, dot( prevView.p1, right ) * lenReci ),
-		make_float4( up * lenReci, dot( prevView.p1, up ) * lenReci ),
-		j0, j1, prevj0, prevj1, w, h, pixelValueScale, directClamp, indirectClamp, camIsStationary);
+	                    make_float4( prevView.pos, -(dot( prevView.pos, direction ) - dot( centre, direction )) ),
+	                    make_float4( direction, 0 ),
+	                    make_float4( right * lenReci, dot( prevView.p1, right ) * lenReci ),
+	                    make_float4( up * lenReci, dot( prevView.p1, up ) * lenReci ),
+	                    j0, j1, prevj0, prevj1, w, h, pixelValueScale, directClamp, indirectClamp, camIsStationary);
 }
 
 //  +-----------------------------------------------------------------------------+
@@ -318,9 +355,9 @@ __host__ void prepareFilter( const float4* accumulator, uint4* features, const f
 //  |  Multi-phase SVGF filter kernel.                                      LH2'19|
 //  +-----------------------------------------------------------------------------+
 __global__ void __launch_bounds__( 64 /* max block size */, 6 /* min blocks per sm */ ) applyFilterKernel(
-	const uint4* features, const float4* prevWorldPos, const float4* worldPos, const float4* deltaDepth, const float2* motion, const float4* moments,
-	const float4* A, const float4* B, float4* C,
-	const uint scrwidth, const uint scrheight, const int phase, const uint lastPass )
+    const uint4* features, const float4* prevWorldPos, const float4* worldPos, const float4* deltaDepth, const float2* motion, const float4* moments,
+    const float4* A, const float4* B, float4* C,
+    const uint scrwidth, const uint scrheight, const int phase, const uint lastPass )
 {
 	// float4 knob: { 10.0f, 5.0f, 7.5f, 0.5f }
 	// get x and y for pixel
@@ -361,32 +398,32 @@ __global__ void __launch_bounds__( 64 /* max block size */, 6 /* min blocks per 
 		const int v = vv * step + y;
 		const int r = abs( vv ) == 2 ? 1 : 2;
 		if (v >= 0 && v < scrheight) for (int uu = -r; uu <= r; uu++) if (uu != 0 || vv != 0)
-		{
-			const int u = clamp( uu * step + x, 0, (int)scrwidth - 1 );
-			// edge stopping weights
-			const uint localPixelIdx = u + v * scrwidth;
-			const float4 combined = A[localPixelIdx];
-			const uint4 neighborFeature = features[localPixelIdx];
-			const float w_dist = (uu * uu + vv * vv) * (-1.0f / 7.5f);
-			const float3 neighborDirect = GetDirectFromFloat4( combined );
-			const float3 neighborIndirectLight = GetIndirectFromFloat4( combined );
-			const float3 neighborNormal = UnpackNormal2( neighborFeature.y );
-			float w_normal = powf( max( 0.0f, dot( neighborNormal, localNormal ) ), 128 );
-			// depth weight. Don't set too aggressive or it will break with curved surfaces.
-			const float expectedNeighborDepth = localDepth + localDdx * (float)(uu * step) + localDdy * (float)(vv * step);
-			const float neighborDepthError = fabs( expectedNeighborDepth - __uint_as_float( neighborFeature.z ) );
-			const float expectedDifference = fabs( expectedNeighborDepth - localDepth );
-			const float w_depth = neighborDepthError / max( 0.00001f, (0.5f + phase * 0.5f) * expectedDifference );
-			// minor weighting on albedo, different materials
-			w_normal *= ((neighborFeature.w >> 4) != localMatID) ? 0.0001 : dot( localColor, RGB32toHDR( neighborFeature.x ) );
-			// luminance weight, calculate separately for direct and indirect
-			float w_dir = w_normal * __expf( fabs( localDirect - Luminance( neighborDirect ) ) * reci_sqrt_filt_var_dir_p + w_dist - w_depth );
-			float w_ind = w_normal * __expf( fabs( localIndirect - Luminance( neighborIndirectLight ) ) * reci_sqrt_filt_var_ind_p + w_dist - w_depth );
-			if (!isfinite( w_dir )) w_dir = 0;
-			if (!isfinite( w_ind )) w_ind = 0;
-			directLightSum += neighborDirect * w_dir, directlightWeightSum += w_dir;
-			indirectLightSum += neighborIndirectLight * w_ind, indirectlightWeightSum += w_ind;
-		}
+				{
+					const int u = clamp( uu * step + x, 0, (int)scrwidth - 1 );
+					// edge stopping weights
+					const uint localPixelIdx = u + v * scrwidth;
+					const float4 combined = A[localPixelIdx];
+					const uint4 neighborFeature = features[localPixelIdx];
+					const float w_dist = (uu * uu + vv * vv) * (-1.0f / 7.5f);
+					const float3 neighborDirect = GetDirectFromFloat4( combined );
+					const float3 neighborIndirectLight = GetIndirectFromFloat4( combined );
+					const float3 neighborNormal = UnpackNormal2( neighborFeature.y );
+					float w_normal = powf( max( 0.0f, dot( neighborNormal, localNormal ) ), 128 );
+					// depth weight. Don't set too aggressive or it will break with curved surfaces.
+					const float expectedNeighborDepth = localDepth + localDdx * (float)(uu * step) + localDdy * (float)(vv * step);
+					const float neighborDepthError = fabs( expectedNeighborDepth - __uint_as_float( neighborFeature.z ) );
+					const float expectedDifference = fabs( expectedNeighborDepth - localDepth );
+					const float w_depth = neighborDepthError / max( 0.00001f, (0.5f + phase * 0.5f) * expectedDifference );
+					// minor weighting on albedo, different materials
+					w_normal *= ((neighborFeature.w >> 4) != localMatID) ? 0.0001 : dot( localColor, RGB32toHDR( neighborFeature.x ) );
+					// luminance weight, calculate separately for direct and indirect
+					float w_dir = w_normal * __expf( fabs( localDirect - Luminance( neighborDirect ) ) * reci_sqrt_filt_var_dir_p + w_dist - w_depth );
+					float w_ind = w_normal * __expf( fabs( localIndirect - Luminance( neighborIndirectLight ) ) * reci_sqrt_filt_var_ind_p + w_dist - w_depth );
+					if (!isfinite( w_dir )) w_dir = 0;
+					if (!isfinite( w_ind )) w_ind = 0;
+					directLightSum += neighborDirect * w_dir, directlightWeightSum += w_dir;
+					indirectLightSum += neighborIndirectLight * w_ind, indirectlightWeightSum += w_ind;
+				}
 	}
 	float3 directFiltered = directLightSum * (1.0f / max( 0.0001f, directlightWeightSum ));
 	float3 indirectFiltered = indirectLightSum * (1.0f / max( 0.0001f, indirectlightWeightSum ));
@@ -394,20 +431,20 @@ __global__ void __launch_bounds__( 64 /* max block size */, 6 /* min blocks per 
 	{
 		// obtain best mapping of a pixel in the current frame to a pixel in the previous frame
 		float2 prevPixelPos = motion[pixelIdx];
-	#if 0
+#if 0
 		// motion vector dilation
 		float bestDepth = 1e20f;
 		for (int v = 0; v < 3; v++) for (int u = 0; u < 3; u++)
-		{
-			int uu = x + (u - 1);
-			int vv = y + (v - 1);
-			if (uu >= 0 && vv >= 0 && uu < scrwidth && vv < scrheight)
 			{
-				float depth = __uint_as_float( features[uu + vv * scrwidth].z );
-				if (depth < bestDepth) bestDepth = depth, prevPixelPos = motion[uu + vv * scrwidth];
+				int uu = x + (u - 1);
+				int vv = y + (v - 1);
+				if (uu >= 0 && vv >= 0 && uu < scrwidth && vv < scrheight)
+				{
+					float depth = __uint_as_float( features[uu + vv * scrwidth].z );
+					if (depth < bestDepth) bestDepth = depth, prevPixelPos = motion[uu + vv * scrwidth];
+				}
 			}
-		}
-	#endif
+#endif
 		// average with filtered value from previous frame
 		const int px = (int)prevPixelPos.x;
 		const int py = (int)prevPixelPos.y;
@@ -419,7 +456,7 @@ __global__ void __launch_bounds__( 64 /* max block size */, 6 /* min blocks per 
 			ReadTexelConsistent2( B, prevWorldPos, localPos, allowedDist2, localNormal, prevPixelPos.x, prevPixelPos.y, scrwidth, scrheight, prevDirect, prevIndirect );
 			if (prevDirect.x != -1)
 			{
-			#if 1
+#if 1
 				prevDirect = RGBToYCoCg( prevDirect ), prevIndirect = RGBToYCoCg( prevIndirect );
 				float3 dirAvg = RGBToYCoCg( directFiltered ), dirVar = dirAvg * dirAvg, f;
 				float3 indAvg = RGBToYCoCg( indirectFiltered ), indVar = indAvg * indAvg, g;
@@ -451,10 +488,10 @@ __global__ void __launch_bounds__( 64 /* max block size */, 6 /* min blocks per 
 				prevIndirect = clamp( prevIndirect, colorMinInd, colorMaxInd );
 				directFiltered = directFiltered * 0.1f + YCoCgToRGB( prevDirect ) * 0.9f;
 				indirectFiltered = indirectFiltered * 0.1f + YCoCgToRGB( prevIndirect ) * 0.9f;
-			#else
+#else
 				directFiltered = 0.2f * directFiltered + 0.8f * prevDirect;
 				indirectFiltered = 0.2f * indirectFiltered + 0.8f * prevIndirect;
-			#endif
+#endif
 			}
 		}
 	}
@@ -476,8 +513,8 @@ __global__ void __launch_bounds__( 64 /* max block size */, 6 /* min blocks per 
 	}
 }
 __host__ void applyFilter(
-	const uint4* features, const float4* prevWorldPos, const float4* worldPos, const float4* deltaDepth, const float2* motion, const float4* moments,
-	const float4* A, const float4* B, float4* C, const uint w, const uint h, const int phase, const uint lastPass )
+    const uint4* features, const float4* prevWorldPos, const float4* worldPos, const float4* deltaDepth, const float2* motion, const float4* moments,
+    const float4* A, const float4* B, float4* C, const uint w, const uint h, const int phase, const uint lastPass )
 {
 	const dim3 gridDim( NEXTMULTIPLEOF( w, 32 ) / 32, NEXTMULTIPLEOF( h, 2 ) / 2 ), blockDim( 32, 2 );
 	applyFilterKernel << < gridDim, blockDim >> > (features, prevWorldPos, worldPos, deltaDepth, motion, moments, A, B, C, w, h, phase, lastPass);
@@ -496,8 +533,8 @@ LH2_DEVFUNC float3 slideTowardsAABB( float3 oldColor, float3 newColor, float3 mi
 	return lerp( newColor, oldColor, ghost );
 }
 __global__ void TAApassKernel(
-	float4* pixels, float4* prevPixels, float j0, float j1, const float4* worldPos, const float4* prevWorldPos, const float2* motion,
-	const uint scrwidth, const uint scrheight )
+    float4* pixels, float4* prevPixels, float j0, float j1, const float4* worldPos, const float4* prevWorldPos, const float2* motion,
+    const uint scrwidth, const uint scrheight )
 {
 	// get x and y for pixel
 	const uint x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -539,8 +576,8 @@ __global__ void TAApassKernel(
 	pixels[pixelIdx] = make_float4( min3( make_float3( 10 ), pixel ), 0 ); // for next frame
 }
 __host__ void TAApass(
-	float4* pixels, float4* prevPixels, float pj0, float pj1, const float4* worldPos, const float4* prevWorldPos, const float2* motion,
-	const uint w, const uint h )
+    float4* pixels, float4* prevPixels, float pj0, float pj1, const float4* worldPos, const float4* prevWorldPos, const float2* motion,
+    const uint w, const uint h )
 {
 	const dim3 gridDim( NEXTMULTIPLEOF( w, 32 ) / 32, NEXTMULTIPLEOF( h, 8 ) / 8 ), blockDim( 32, 8 );
 	TAApassKernel << < gridDim, blockDim >> > (pixels, prevPixels, pj0, pj1, worldPos, prevWorldPos, motion, w, h);
@@ -604,7 +641,7 @@ __host__ void finalizeNoTAA( float4* pixels, const uint w, const uint h )
 //  |  Raw dump of debug data.                                              LH2'19|
 //  +-----------------------------------------------------------------------------+
 __global__ void finalizeFilterDebugKernel( const uint scrwidth, const uint scrheight, const uint4* features, const float4* worldPos,
-	const float4* prevWorldPos, const float4* deltaDepth, const float2* motion, const float4* moments, const float4* shading )
+        const float4* prevWorldPos, const float4* deltaDepth, const float2* motion, const float4* moments, const float4* shading )
 {
 	// get x and y for pixel
 	const uint x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -640,16 +677,16 @@ __global__ void finalizeFilterDebugKernel( const uint scrwidth, const uint scrhe
 	surf2Dwrite<float4>( pixel, renderTarget, x * sizeof( float4 ), y, cudaBoundaryModeClamp );
 }
 __host__ void finalizeFilterDebug( const uint w, const uint h,
-	// data available after gathering frame data in shade (pathtracer.h)
-	const uint4* features,		// x: albedo; y: packed normal; z: dist from cam; w: 4-bit history count, 2-bit specularity flags, (matid << 6)
-	const float4* worldPos,		// xyz: world pos first non-specular vertex; w: packed normal (again)
-	const float4* prevWorldPos, // worldPos data for the previous frame
-	const float4* deltaDepth,	// xy: unused; zw: depth derivatives over x and y
-	// data available after processing gathered frame data in prepareFilter
-	const float2* motion,		// per-pixel motion vectors
-	const float4* moments,		// xyzw: lumDirect, lumDirect2, lumIndirect, lumIndirect2
-	const float4* shading		// indirect and indirect shading; unpack using Get(Ind|D)irectFromFloat4
-)
+                                   // data available after gathering frame data in shade (pathtracer.h)
+                                   const uint4* features,		// x: albedo; y: packed normal; z: dist from cam; w: 4-bit history count, 2-bit specularity flags, (matid << 6)
+                                   const float4* worldPos,		// xyz: world pos first non-specular vertex; w: packed normal (again)
+                                   const float4* prevWorldPos, // worldPos data for the previous frame
+                                   const float4* deltaDepth,	// xy: unused; zw: depth derivatives over x and y
+                                   // data available after processing gathered frame data in prepareFilter
+                                   const float2* motion,		// per-pixel motion vectors
+                                   const float4* moments,		// xyzw: lumDirect, lumDirect2, lumIndirect, lumIndirect2
+                                   const float4* shading		// indirect and indirect shading; unpack using Get(Ind|D)irectFromFloat4
+                                 )
 {
 	const dim3 gridDim( NEXTMULTIPLEOF( w, 32 ) / 32, NEXTMULTIPLEOF( h, 8 ) / 8 ), blockDim( 32, 8 );
 	finalizeFilterDebugKernel << < gridDim, blockDim >> > (w, h, features, worldPos, prevWorldPos, deltaDepth, motion, moments, shading);
